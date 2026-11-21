@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#ffffff"><title>Складно — рецепты</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header class="topbar"><div class="topbar-inner">
+ <a class="brand" href="#" aria-label="Складно — все рецепты"><svg viewBox="0 0 26 26" width="25" height="25" aria-hidden="true"><path d="M3 5h8v7h12M3 12h8M3 19h8v-7M23 5v14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>Складно</a>
+ <nav aria-label="Библиотека"><button class="nav active" data-view="all">Рецепты <b id="all-count">—</b></button><button class="nav" data-view="favorites">Избранное <b id="fav-count">—</b></button></nav>
+ <button class="primary" data-action="new"><span aria-hidden="true">+</span> Подготовить рецепт</button>
+</div></header>
+<main><header class="library-heading"><h1 id="view-title">Рецепты</h1><p id="result-count" class="muted"></p></header>
+<section class="toolbar"><label class="search"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.6"/></svg><input id="search" type="search" placeholder="Название или ингредиенты" aria-label="Поиск по названию и ингредиентам"></label><select id="sort" aria-label="Сортировать"><option value="new">Сначала новые</option><option value="title">По названию</option><option value="time">По времени</option></select></section>
+<div id="categories" class="categories" aria-label="Категории"></div>
+<div class="list-labels" aria-hidden="true"><span>Название</span><span>Категория</span><span>Время</span><span class="count-label">Состав</span><span></span></div>
+<section id="recipes" class="recipe-list" aria-label="Список рецептов"></section>
+<footer class="library-footer"><span>Коллекция общая. Избранное — на этом устройстве.</span><div><button data-action="export">Скачать коллекцию</button><button data-action="refresh">Обновить</button></div></footer>
+</main>
+<dialog id="recipe-dialog" class="recipe-dialog"><div id="recipe-detail"></div></dialog>
+<dialog id="editor-dialog" class="editor-dialog"><form id="editor-form"><div class="dialog-head"><h2 id="editor-title">Новый рецепт</h2><button type="button" class="icon-button" data-close="editor-dialog" aria-label="Закрыть">✕</button></div>
+ <div class="editor-body"><details id="paste-section" class="paste-section" open><summary>Вставить рецепт из текста</summary><p class="muted">Вставьте название, список ингредиентов и шаги приготовления. После разбора можно исправить продукты и порядок действий.</p><textarea id="paste-text" rows="6" placeholder="Текст рецепта"></textarea><button type="button" class="secondary" id="parse">Разобрать текст</button><p id="parse-notice" role="status"></p></details>
+ <div class="fields"><label>Название<input id="edit-name" required maxlength="160" placeholder="Например, сырники"></label><label>Категория<input id="edit-category" list="category-list" placeholder="Завтраки" maxlength="60"><datalist id="category-list"><option>Завтраки</option><option>Основные блюда</option><option>Супы</option><option>Салаты</option><option>Выпечка</option><option>Десерты</option><option>Напитки</option></datalist></label><label>Время, минут<input id="edit-time" type="number" min="0" max="10000" placeholder="30"></label><label>Порций<input id="edit-servings" type="number" min="1" max="1000" placeholder="—"></label></div>
+ <label class="block-label">Ингредиенты <span>По одному на строку, с количеством</span><textarea id="edit-ingredients" rows="6" placeholder="Масло — 30 г&#10;Лук — 1 шт.&#10;Рис — 150 г" required></textarea></label>
+ <div class="steps-head"><div><h3>Этапы приготовления</h3><p class="muted">Укажите, что входит в каждый этап: продукты или результат предыдущих действий.</p></div><button type="button" class="secondary" id="add-step">＋ Этап</button></div><div id="edit-steps"></div>
+ <label class="block-label">Заметки<textarea id="edit-notes" rows="2" placeholder="Замены, источник или небольшие хитрости…"></textarea></label><p id="editor-error" class="error" role="alert"></p>
+ </div><footer class="dialog-footer"><span class="muted">Черновик станет общим после публикации</span><button type="submit" class="primary">Скачать JSON</button></footer></form></dialog>
+<div id="toast" role="status"></div>
+<script src="core.js"></script><script src="collection.js"></script><script src="app.js"></script>
+</body></html>
