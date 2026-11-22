@@ -4,7 +4,7 @@ const FAVORITES_KEY='skladno.favorites.v1';
 let recipes=[],favoriteIds=[],currentDraft=null,loaded=false,loading=false;
 try{const stored=JSON.parse(localStorage.getItem(FAVORITES_KEY)||'[]');if(Array.isArray(stored))favoriteIds=stored.filter(x=>typeof x==='string');}catch{}
 let view='all',category='',selected=null,editId=null,draftSteps=[],draftIngredients=[],detailMode='table';
-function toast(s){$('#toast').textContent=s;$('#toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').style.display='none',4500);}
+function toast(s){const notice=$('#toast'),dialogs=[...document.querySelectorAll('dialog[open]')];(dialogs.at(-1)||document.body).append(notice);notice.textContent=s;notice.style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>notice.style.display='none',4500);}
 async function loadCollection(){
  loading=true;$('#result-count').textContent='Загрузка…';
  document.querySelector('[data-action="export"]').disabled=true;
@@ -38,8 +38,107 @@ function flow(r){const a=RecipeCore.analyze(r);if(a.errors.length)return `<p cla
 }
 function showRecipe(id,mode='table'){selected=id;detailMode=mode;const r=currentDraft?.id===id?currentDraft:recipes.find(x=>x.id===id);if(!r)return;const isDraft=r===currentDraft;
  $('#recipe-detail').innerHTML=`<div class="dialog-head"><div><div class="eyebrow">${isDraft?'Черновик · ':''}${esc(r.category||'Рецепт')}</div><h2>${esc(r.name)}</h2></div><button class="icon-button" data-close="recipe-dialog" aria-label="Закрыть">✕</button></div><div class="detail-top"><div class="detail-meta"><span>${r.time?r.time+' мин':'Время не указано'}</span><span>${r.servings?esc(r.servings)+" порц.":"Порции не указаны"}</span><span>${plural(r.ingredients.length,'ингредиент','ингредиента','ингредиентов')}</span></div><div class="tabs"><button data-mode="table" class="${mode==='table'?'active':''}">Таблица</button><button data-mode="text" class="${mode==='text'?'active':''}">Текст рецепта</button></div></div><div class="detail-content">${mode==='table'?'<p class="table-help">Слева направо: каждый шаг объединяет ингредиенты и смеси из строк, которые он охватывает.</p>'+flow(r):`<h3>Ингредиенты</h3><ul class="plain-ingredients">${r.ingredients.map(s=>'<li>'+esc(s)+'</li>').join('')}</ul><h3>Приготовление</h3><ol class="steps-list">${r.steps.map(s=>'<li>'+esc(s.text)+'</li>').join('')}</ol>`}${r.notes?`<p class="source-notes">${esc(r.notes)}</p>`:''}${isDraft?'<p class="warning">Это черновик. Чтобы он появился на всех устройствах, передайте скачанный JSON для публикации.</p>':''}<div class="detail-actions"><button class="secondary" data-action="edit">${isDraft?'Редактировать черновик':'Подготовить правку'}</button><button class="secondary" data-action="print">Печать</button>${isDraft?'<button class="secondary" data-action="download-draft">Скачать JSON</button>':`<button class="secondary" data-favorite="${esc(r.id)}">${r.favorite?'Убрать из избранного':'В избранное'}</button>`}</div></div>`;
+ if(mode==='table'){
+  const tools=document.createElement('div');tools.className='table-tools';
+  tools.innerHTML='<button class="secondary" data-action="focus-table">На весь экран</button><button class="secondary" data-action="copy-image">Скопировать картинку</button><button class="secondary" data-action="save-image">Скачать PNG</button>'+(navigator.canShare?'<button class="secondary" data-action="share-image">Поделиться</button>':'');
+  $('.detail-content').prepend(tools);
+ }
  if(!$('#recipe-dialog').open)$('#recipe-dialog').showModal();
 }
+// Draw the same dependency grid directly, without DOM screenshots or remote services.
+// Row heights grow to fit every merged cell before any pixels are painted.
+let imageCache=null,focusZoom=1;
+function selectedRecipe(){return currentDraft?.id===selected?currentDraft:recipes.find(r=>r.id===selected);}
+function recipeImage(r){
+ if(imageCache?.recipe===r)return imageCache.canvas;
+ const graph=RecipeCore.analyze(r);if(graph.errors.length)throw Error('Проверьте связи этапов рецепта.');
+ const measure=document.createElement('canvas').getContext('2d');
+ const font=(size,weight=400)=>`${weight} ${size}px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif`;
+ function wrap(text,width,size=16,weight=400){
+  measure.font=font(size,weight);const lines=[];
+  for(const paragraph of String(text).split('\n')){
+   let line='';for(const word of paragraph.split(/\s+/).filter(Boolean)){
+    if(measure.measureText((line?line+' ':'')+word).width<=width){line+=(line?' ':'')+word;continue;}
+    if(line){lines.push(line);line='';}
+    if(measure.measureText(word).width<=width){line=word;continue;}
+    for(const char of word){if(line&&measure.measureText(line+char).width>width){lines.push(line);line='';}line+=char;}
+   }lines.push(line);
+  }return lines;
+ }
+ const widths=Array.from({length:graph.columns},(_,i)=>i===0?240:i===graph.columns-1?170:260);
+ const xs=[0];widths.forEach(w=>xs.push(xs.at(-1)+w));
+ const tableWidth=xs.at(-1),padding=32,lineHeight=24,rows=graph.leaves.map(()=>64);
+ const cells=graph.cells.map(cell=>{const width=xs[cell.col+cell.colspan]-xs[cell.col];const lines=wrap(cell.text,width-32);return {...cell,width,lines,needed:lines.length*lineHeight+32+(cell.index?22:0)};});
+ for(const cell of [...cells].sort((a,b)=>a.rowspan-b.rowspan)){
+  if(cell.id.startsWith('carry-'))continue;
+  const available=rows.slice(cell.row,cell.row+cell.rowspan).reduce((a,b)=>a+b,0);
+  if(available<cell.needed){const extra=(cell.needed-available)/cell.rowspan;for(let i=cell.row;i<cell.row+cell.rowspan;i++)rows[i]+=extra;}
+ }
+ const ys=[0];rows.forEach(h=>ys.push(ys.at(-1)+h));
+ const title=wrap(r.name,tableWidth,28,600);
+ const meta=[r.category,r.time?`${r.time} мин`:null,r.servings?`${r.servings} порц.`:null,plural(r.ingredients.length,'ингредиент','ингредиента','ингредиентов')].filter(Boolean).join('  ·  ');
+ const metaLines=wrap(meta,tableWidth,15);
+ const prep=graph.emptySteps.flatMap(s=>wrap(`${s.index}. ${s.text}`,tableWidth,16));
+ const tableY=padding+title.length*36+12+metaLines.length*23+(prep.length?20+prep.length*24:0)+26;
+ const headerHeight=42,width=tableWidth+padding*2,height=tableY+headerHeight+ys.at(-1)+padding+28;
+ // Keep large recipes inside mobile canvas limits while retaining PNG detail.
+ const resolution=Math.min(2,8192/width,8192/height,Math.sqrt(24000000/(width*height)));
+ const canvas=document.createElement('canvas');canvas.width=Math.ceil(width*resolution);canvas.height=Math.ceil(height*resolution);
+ canvas.dataset.width=width;canvas.dataset.height=height;
+ canvas.setAttribute('role','img');canvas.setAttribute('aria-label',`Таблица рецепта: ${r.name}. Для чтения с экранным диктором откройте текст рецепта.`);
+ const ctx=canvas.getContext('2d');ctx.scale(resolution,resolution);ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
+ function text(lines,x,y,size=16,weight=400,color='#252525',leading=lineHeight){ctx.font=font(size,weight);ctx.fillStyle=color;ctx.textBaseline='top';lines.forEach((line,i)=>ctx.fillText(line,x,y+i*leading));}
+ text(title,padding,padding,28,600,'#202020',36);
+ text(metaLines,padding,padding+title.length*36+12,15,400,'#656565',23);
+ if(prep.length)text(prep,padding,tableY-26-prep.length*24,16);
+ ctx.fillStyle='#f5f5f5';ctx.fillRect(padding,tableY,tableWidth,headerHeight);
+ text(['Ингредиенты'],padding+16,tableY+12,14,500,'#606060');
+ if(graph.columns>2)text(['Приготовление'],padding+xs[1]+16,tableY+12,14,500,'#606060');
+ text(['Результат'],padding+xs.at(-2)+16,tableY+12,14,500,'#606060');
+ ctx.strokeStyle='#d4d4d4';ctx.lineWidth=1;
+ for(const cell of cells){const x=padding+xs[cell.col],y=tableY+headerHeight+ys[cell.row],h=ys[cell.row+cell.rowspan]-ys[cell.row];
+  ctx.fillStyle=cell.id==='final'?'#f7f3f0':cell.id.startsWith('i')||cell.id.startsWith('carry-')?'#fafafa':'#fff';ctx.fillRect(x,y,cell.width,h);ctx.strokeRect(x,y,cell.width,h);
+  if(cell.id.startsWith('carry-'))continue;
+  const contentHeight=cell.lines.length*lineHeight+(cell.index?22:0),top=y+(h-contentHeight)/2;
+  if(cell.index)text([String(cell.index).padStart(2,'0')],x+16,top,12,400,'#888');
+  text(cell.lines,x+16,top+(cell.index?22:0),16,400,cell.id==='final'?'#754a3c':cell.id.startsWith('i')?'#555':'#252525');
+ }
+ ctx.strokeRect(padding,tableY,tableWidth,headerHeight+ys.at(-1));
+ for(const x of [xs[1],xs.at(-2)]){ctx.beginPath();ctx.moveTo(padding+x,tableY);ctx.lineTo(padding+x,tableY+headerHeight);ctx.stroke();}
+ text(['Складно · fread04.github.io/skladno'],padding,height-padding+5,12,400,'#777');
+ imageCache={recipe:r,canvas};return canvas;
+}
+function pngBlob(canvas){return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('Не удалось создать PNG.')),'image/png'));}
+function imageName(){return (selectedRecipe()?.name||'Рецепт').replace(/[<>:"/\\|?*\x00-\x1f]/g,'').slice(0,100)+'.png';}
+function saveImageBlob(blob){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=imageName();a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+async function exportImage(action){
+ try{
+  const canvas=recipeImage(selectedRecipe()),blobPromise=pngBlob(canvas);
+  if(action==='copy-image'&&navigator.clipboard?.write&&typeof ClipboardItem!=='undefined'){
+   // Pass a promise immediately so Safari retains the originating user gesture.
+   await navigator.clipboard.write([new ClipboardItem({'image/png':blobPromise})]);toast('Картинка скопирована. Её можно вставить в сообщение.');return;
+  }
+  const blob=await blobPromise;
+  if(action==='share-image'){
+   const file=new File([blob],imageName(),{type:'image/png'});
+   if(navigator.canShare?.({files:[file]})){await navigator.share({files:[file],title:selectedRecipe().name});return;}
+  }
+  saveImageBlob(blob);toast(action==='copy-image'?'Браузер не поддерживает копирование картинки. PNG скачан.':'PNG скачан — можно отправить его в любом мессенджере.');
+ }catch(error){if(error.name==='AbortError')return;toast(action==='copy-image'?'Браузер не разрешил копирование. Нажмите «Скачать PNG».':'Не удалось отправить картинку. Попробуйте «Скачать PNG».');}
+}
+function fitTable(){
+ if(!$('#table-dialog').open)return;
+ const viewport=$('#table-viewport'),canvas=viewport.querySelector('canvas');if(!canvas)return;
+ const ratio=Math.min((viewport.clientWidth-26)/Number(canvas.dataset.width),(viewport.clientHeight-26)/Number(canvas.dataset.height),1);
+ canvas.style.width=Number(canvas.dataset.width)*ratio*focusZoom+'px';canvas.style.height=Number(canvas.dataset.height)*ratio*focusZoom+'px';
+ $('#table-zoom').textContent=Math.round(ratio*focusZoom*100)+'%';
+ $('#table-zoom-out').disabled=focusZoom<=1;$('#table-zoom-in').disabled=focusZoom>=8;
+}
+function openTable(){
+ try{focusZoom=1;$('#table-viewport').replaceChildren(recipeImage(selectedRecipe()));$('#table-dialog').showModal();fitTable();$('#table-viewport').scrollTo(0,0);}catch{toast('Не удалось открыть таблицу. Попробуйте ещё раз.');}
+}
+new ResizeObserver(fitTable).observe($('#table-viewport'));
+$('#table-dialog').addEventListener('close',()=>{if(document.fullscreenElement===$('#table-dialog'))document.exitFullscreen().catch(()=>{});});
 function collectSteps(){document.querySelectorAll('.step-edit').forEach((el,i)=>{draftSteps[i].text=el.querySelector('textarea').value;draftSteps[i].inputs=[...el.querySelectorAll('input:checked')].map(x=>x.value);});}
 function syncIngredients(){const next=$('#edit-ingredients').value.split('\n').map(s=>s.trim()).filter(Boolean);draftSteps.forEach(s=>{s.inputs=s.inputs.flatMap(id=>{if(!id.startsWith('i'))return [id];const old=draftIngredients[Number(id.slice(1))];const index=next.indexOf(old);return index<0?[]:['i'+index];});});draftIngredients=next;}
 function renderSteps(){
@@ -59,7 +158,7 @@ document.addEventListener('click',e=>{if(e.target.closest('.brand')){e.preventDe
  if(b.dataset.favorite){toggleFavorite(b.dataset.favorite);return;}
  if(b.dataset.mode){showRecipe(selected,b.dataset.mode);return;}
  if(b.dataset.removeStep!==undefined){collectSteps();const i=Number(b.dataset.removeStep),id=draftSteps[i].id;draftSteps.splice(i,1);draftSteps.forEach(s=>s.inputs=s.inputs.filter(v=>v!==id));renderSteps();return;}
- switch(b.dataset.action){case 'new':currentDraft=null;editor();break;case 'edit':editor(selected);break;case 'print':window.print();break;case 'export':download();break;case 'refresh':loadCollection();break;case 'download-draft':downloadDraft();break;}
+ switch(b.dataset.action){case 'focus-table':openTable();break;case 'fit-table':focusZoom=1;fitTable();$('#table-viewport').scrollTo(0,0);break;case 'zoom-in':focusZoom=Math.min(8,focusZoom*1.4);fitTable();break;case 'zoom-out':focusZoom=Math.max(1,focusZoom/1.4);fitTable();break;case 'native-fullscreen':if($('#table-dialog').requestFullscreen)$('#table-dialog').requestFullscreen().catch(()=>toast('Полноэкранный режим недоступен в этом браузере.'));break;case 'copy-image':case 'save-image':case 'share-image':exportImage(b.dataset.action);break;case 'new':currentDraft=null;editor();break;case 'edit':editor(selected);break;case 'print':window.print();break;case 'export':download();break;case 'refresh':loadCollection();break;case 'download-draft':downloadDraft();break;}
 });
 $('#search').addEventListener('input',()=>{if(loaded)render();});$('#sort').addEventListener('change',()=>{if(loaded)render();});
 $('#edit-ingredients').addEventListener('change',()=>{collectSteps();syncIngredients();renderSteps();});
