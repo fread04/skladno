@@ -139,6 +139,12 @@ function openTable(){
 }
 new ResizeObserver(fitTable).observe($('#table-viewport'));
 $('#table-dialog').addEventListener('close',()=>{if(document.fullscreenElement===$('#table-dialog'))document.exitFullscreen().catch(()=>{});});
+// Close only when both ends of the click are on the backdrop; dragging text
+// out of the card or using its scrollbar must leave the recipe open.
+const recipeDialog=$('#recipe-dialog');let recipeBackdropDown=false;
+function outsideRecipe(event){const rect=recipeDialog.getBoundingClientRect();return event.target===recipeDialog&&(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom);}
+recipeDialog.addEventListener('pointerdown',event=>{recipeBackdropDown=outsideRecipe(event);});
+recipeDialog.addEventListener('click',event=>{if(recipeBackdropDown&&outsideRecipe(event))recipeDialog.close();recipeBackdropDown=false;});
 function collectSteps(){document.querySelectorAll('.step-edit').forEach((el,i)=>{draftSteps[i].text=el.querySelector('textarea').value;draftSteps[i].inputs=[...el.querySelectorAll('input:checked')].map(x=>x.value);});}
 function syncIngredients(){const next=$('#edit-ingredients').value.split('\n').map(s=>s.trim()).filter(Boolean);draftSteps.forEach(s=>{s.inputs=s.inputs.flatMap(id=>{if(!id.startsWith('i'))return [id];const old=draftIngredients[Number(id.slice(1))];const index=next.indexOf(old);return index<0?[]:['i'+index];});});draftIngredients=next;}
 function renderSteps(){
